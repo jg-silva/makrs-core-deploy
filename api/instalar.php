@@ -13,16 +13,20 @@ header('Content-Type: text/plain; charset=utf-8');
 
 // ---------- schema ----------
 $sql = file_get_contents(__DIR__ . '/schema.sql');
-$comandos = array_filter(array_map('trim', preg_split('/;\s*\n/', $sql)));
+// tira as linhas de comentário ANTES de dividir: um bloco que começa com "--"
+// esconderia o CREATE TABLE que vem logo abaixo dele.
+$sql = preg_replace('/^\s*--.*$/m', '', $sql);
+$comandos = array_filter(array_map('trim', explode(';', $sql)));
 $ok = 0; $falhas = [];
 foreach ($comandos as $c) {
-    if ($c === '' || str_starts_with($c, '--')) continue;
+    if ($c === '') continue;
     try { pdo()->exec($c); $ok++; }
-    catch (Throwable $e) { $falhas[] = substr($e->getMessage(), 0, 160); }
+    catch (Throwable $e) { $falhas[] = substr(preg_replace('/\s+/', ' ', $c), 0, 60) . ' => ' . substr($e->getMessage(), 0, 120); }
 }
 echo "schema: $ok comandos ok\n";
 foreach ($falhas as $f) echo "  falha: $f\n";
 
+try {
 // ---------- plano de contas (o real da planilha) ----------
 foreach ([
     ['Receita Bruta','receita',1,1], ['Outras Entradas','receita',1,2],
@@ -76,4 +80,5 @@ if (!umaLinha("SELECT id FROM usuarios WHERE email = ?", [$email])) {
 } else {
     echo "\nusuário já existe: $email\n";
 }
+} catch (Throwable $e) { echo "\nERRO no seed: " . $e->getMessage() . "\n"; }
 echo "\npronto.\n";
