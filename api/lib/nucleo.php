@@ -15,6 +15,40 @@ if (!file_exists(__DIR__ . '/../config.php')) {
 }
 require __DIR__ . '/../config.php';
 
+/**
+ * Nenhum erro escapa como página em branco: tudo vira JSON e vai para o log.
+ * O detalhe só aparece para quem tem o token de diagnóstico (HMAC do APP_SEGREDO) —
+ * nunca para o cliente comum.
+ */
+function podeDiagnosticar(): bool
+{
+    $t = $_GET['diag'] ?? '';
+    return $t !== '' && hash_equals(substr(hash_hmac('sha256', 'diag', APP_SEGREDO), 0, 32), (string) $t);
+}
+
+set_exception_handler(function (Throwable $e) {
+    error_log('[makrs-core] ' . $e::class . ': ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    http_response_code(500);
+    header('Content-Type: application/json; charset=utf-8');
+    $corpo = ['erro' => 'Erro interno. A equipe foi notificada.'];
+    if (podeDiagnosticar()) {
+        $corpo['detalhe'] = $e::class . ': ' . $e->getMessage();
+        $corpo['onde'] = basename($e->getFile()) . ':' . $e->getLine();
+    }
+    echo json_encode($corpo, JSON_UNESCAPED_UNICODE);
+    exit;
+});
+
+register_shutdown_function(function () {
+    $e = error_get_last();
+    if (!$e || !in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) return;
+    error_log('[makrs-core] fatal: ' . $e['message'] . ' @ ' . $e['file'] . ':' . $e['line']);
+    if (!headers_sent()) { http_response_code(500); header('Content-Type: application/json; charset=utf-8'); }
+    $corpo = ['erro' => 'Erro interno. A equipe foi notificada.'];
+    if (podeDiagnosticar()) { $corpo['detalhe'] = $e['message']; $corpo['onde'] = basename($e['file']) . ':' . $e['line']; }
+    echo json_encode($corpo, JSON_UNESCAPED_UNICODE);
+});
+
 // ----------------------------------------------------------------- BANCO
 function pdo(): PDO
 {
