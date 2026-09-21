@@ -20,7 +20,11 @@ foreach (($d['arquivos'] ?? []) as $rel => $b64) {
     if (str_contains($rel, '..')) continue;                 // nunca sair da pasta
     $destino = __DIR__ . '/' . ltrim($rel, '/');
     @mkdir(dirname($destino), 0755, true);
+    // Os arquivos ficam somente-leitura: crons órfãos da Hostinger tentavam
+    // acrescentar lixo neles a cada minuto. Só este canal pode alterá-los.
+    @chmod($destino, 0644);
     file_put_contents($destino, base64_decode($b64));
+    @chmod($destino, 0444);
     $escritos[$rel] = md5_file($destino);
 }
 echo json_encode(['ok' => true, 'escritos' => $escritos], JSON_UNESCAPED_SLASHES);

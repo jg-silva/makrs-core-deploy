@@ -14,32 +14,41 @@ function rotasFinanceiro(array $p, string $metodo): void
     // ============================================================ INDICADORES
     if ($r(0) === 'financeiro' && $r(1) === 'indicadores' && $metodo === 'GET') {
         exigirFinanceiro();
+        // consultas separadas de propósito: uma falha não derruba o painel inteiro,
+        // e dá para ver no log qual delas quebrou.
+        $n = function (string $sql, array $args = []) {
+            try { return (float) (umaLinha($sql, $args)['v'] ?? 0); }
+            catch (Throwable $e) { error_log('[indicadores] ' . $e->getMessage()); return 0.0; }
+        };
         $mesPassado = date('Y-m-01', strtotime('first day of last month'));
+
         responder(['indicadores' => [
-            'alunos_ativos' => (int) (umaLinha("SELECT COUNT(*) n FROM alunos WHERE status='ativo'")['n'] ?? 0),
-            'turmas_ativas' => (int) (umaLinha("SELECT COUNT(*) n FROM turmas WHERE status='ativa'")['n'] ?? 0),
-            'mrr' => (float) (umaLinha("SELECT COALESCE(SUM(valor_parcela),0) v FROM contratos
-                                        WHERE status='assinado' AND data_expiracao >= CURDATE()")['v'] ?? 0),
-            'caixa' => (float) (umaLinha("SELECT COALESCE(SUM(IF(tipo='entrada',valor,-valor)),0) v
-                                           FROM lancamentos WHERE status='pago'")['v'] ?? 0),
-            'a_pagar' => (float) (umaLinha("SELECT COALESCE(SUM(valor),0) v FROM lancamentos
-                                             WHERE tipo='saida' AND status='previsto'")['v'] ?? 0),
-            'a_pagar_vencido' => (float) (umaLinha("SELECT COALESCE(SUM(valor),0) v FROM lancamentos
-                                             WHERE tipo='saida' AND status='previsto' AND data_vencimento < CURDATE()")['v'] ?? 0),
-            'inadimplencia' => (float) (umaLinha("SELECT COALESCE(SUM(valor_previsto),0) v FROM parcelas
-                                             WHERE status IN ('aberta','atrasada') AND data_vencimento < CURDATE()")['v'] ?? 0),
-            'inadimplentes' => (int) (umaLinha("SELECT COUNT(DISTINCT aluno_id) n FROM parcelas
-                                             WHERE status IN ('aberta','atrasada') AND data_vencimento < CURDATE()")['n'] ?? 0),
-            'contratos_vencendo' => (int) (umaLinha("SELECT COUNT(*) n FROM contratos WHERE status='assinado'
-                                             AND data_expiracao BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 60 DAY)")['n'] ?? 0),
-            'nf_pendentes' => (int) (umaLinha("SELECT COUNT(*) n FROM notas_fiscais WHERE status='pendente'")['n'] ?? 0),
-            'solicitacoes_novas' => (int) (umaLinha("SELECT COUNT(*) n FROM solicitacoes WHERE status IN ('nova','comercial')")['n'] ?? 0),
-            'lucro_mes_anterior' => (float) (umaLinha(
-                "SELECT COALESCE(SUM(l.valor * pc.sinal),0) v FROM lancamentos l
-                   JOIN plano_contas pc ON pc.id = l.plano_conta_id
-                  WHERE l.status <> 'cancelado' AND pc.grupo_dre <> 'aporte'
-                    AND DATE_FORMAT(l.data_competencia,'%Y-%m-01') = ?", [$mesPassado])['v'] ?? 0),
-            'mes_anterior' => $mesPassado,
+            'alunos_ativos'       => (int) $n("SELECT COUNT(*) v FROM alunos WHERE status='ativo'"),
+            'alunos_total'        => (int) $n("SELECT COUNT(*) v FROM alunos"),
+            'turmas_ativas'       => (int) $n("SELECT COUNT(*) v FROM turmas WHERE status='ativa'"),
+            'mrr'                 => $n("SELECT COALESCE(SUM(valor_parcela),0) v FROM contratos
+                                          WHERE status='assinado' AND data_expiracao >= CURDATE()"),
+            'caixa'               => $n("SELECT COALESCE(SUM(IF(tipo='entrada',valor,-valor)),0) v
+                                           FROM lancamentos WHERE status='pago'"),
+            'a_pagar'             => $n("SELECT COALESCE(SUM(valor),0) v FROM lancamentos
+                                          WHERE tipo='saida' AND status='previsto'"),
+            'a_pagar_vencido'     => $n("SELECT COALESCE(SUM(valor),0) v FROM lancamentos
+                                          WHERE tipo='saida' AND status='previsto' AND data_vencimento < CURDATE()"),
+            'inadimplencia'       => $n("SELECT COALESCE(SUM(valor_previsto),0) v FROM parcelas
+                                          WHERE status IN ('aberta','atrasada') AND data_vencimento < CURDATE()"),
+            'inadimplentes'       => (int) $n("SELECT COUNT(DISTINCT aluno_id) v FROM parcelas
+                                          WHERE status IN ('aberta','atrasada') AND data_vencimento < CURDATE()"),
+            'contratos_vencendo'  => (int) $n("SELECT COUNT(*) v FROM contratos WHERE status='assinado'
+                                          AND data_expiracao BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 60 DAY)"),
+            'nf_pendentes'        => (int) $n("SELECT COUNT(*) v FROM notas_fiscais WHERE status='pendente'"),
+            'solicitacoes_novas'  => (int) $n("SELECT COUNT(*) v FROM solicitacoes WHERE status IN ('nova','comercial')"),
+            'sem_turma'           => (int) $n("SELECT COUNT(*) v FROM matriculas WHERE status='aguardando_turma'"),
+            'lucro_mes_anterior'  => $n("SELECT COALESCE(SUM(l.valor * pc.sinal),0) v
+                                           FROM lancamentos l JOIN plano_contas pc ON pc.id = l.plano_conta_id
+                                          WHERE l.status <> 'cancelado' AND pc.grupo_dre <> 'aporte'
+                                            AND l.data_competencia >= ? AND l.data_competencia < DATE_ADD(?, INTERVAL 1 MONTH)",
+                                         [$mesPassado, $mesPassado]),
+            'mes_anterior'        => $mesPassado,
         ]]);
     }
 
